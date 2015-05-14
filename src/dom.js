@@ -1,2018 +1,896 @@
-/**
- * DOM.js is a lightweight & fast cross browser library for
- * dom traversal and manipulation.
+/*
+ * jQuery FlexSlider v2.1
+ * http://www.woothemes.com/flexslider/
  *
- * Supports
+ * Copyright 2012 WooThemes
+ * Free to use under the GPLv2 license.
+ * http://www.gnu.org/licenses/gpl-2.0.html
  *
- * @author Dawid Kraczowski <Crac>
- * @license MIT
+ * Contributing author: Tyler Smith (@mbmufffin)
  */
-;(function (window, document, undefined) {
 
-    /**
-     * DOM global object
-     * @type {{}}
-     */
-    var Dom = {};
+;(function ($) {
 
-    /**
-     * Array.indexOf support
-     * @param {Array} array
-     * @param {*} obj
-     * @returns {number}
-     * @private
-     */
-    function _indexOf(array, obj) {
-        if (Array.prototype.indexOf) {
-            return Array.prototype.indexOf.call(array, obj);
-        }
-        for (var i = 0, j = array.length; i < j; i++) {
-            if (array[i] === obj) {
-                return i;
+  //FlexSlider: Object Instance
+  $.flexslider = function(el, options) {
+    var slider = $(el),
+        vars = $.extend({}, $.flexslider.defaults, options),
+        namespace = vars.namespace,
+        touch = ("ontouchstart" in window) || window.DocumentTouch && document instanceof DocumentTouch,
+        eventType = (touch) ? "touchend" : "click",
+        vertical = vars.direction === "vertical",
+        reverse = vars.reverse,
+        carousel = (vars.itemWidth > 0),
+        fade = vars.animation === "fade",
+        asNav = vars.asNavFor !== "",
+        methods = {};
+    
+    // Store a reference to the slider object
+    $.data(el, "flexslider", slider);
+    
+    // Privat slider methods
+    methods = {
+      init: function() {
+        slider.animating = false;
+        slider.currentSlide = vars.startAt;
+        slider.animatingTo = slider.currentSlide;
+        slider.atEnd = (slider.currentSlide === 0 || slider.currentSlide === slider.last);
+        slider.containerSelector = vars.selector.substr(0,vars.selector.search(' '));
+        slider.slides = $(vars.selector, slider);
+        slider.container = $(slider.containerSelector, slider);
+        slider.count = slider.slides.length;
+        // SYNC:
+        slider.syncExists = $(vars.sync).length > 0;
+        // SLIDE:
+        if (vars.animation === "slide") vars.animation = "swing";
+        slider.prop = (vertical) ? "top" : "marginRight";
+        slider.args = {};
+        // SLIDESHOW:
+        slider.manualPause = false;
+        // TOUCH/USECSS:
+        slider.transitions = !vars.video && !fade && vars.useCSS && (function() {
+          var obj = document.createElement('div'),
+              props = ['perspectiveProperty', 'WebkitPerspective', 'MozPerspective', 'OPerspective', 'msPerspective'];
+          for (var i in props) {
+            if ( obj.style[ props[i] ] !== undefined ) {
+              slider.pfx = props[i].replace('Perspective','').toLowerCase();
+              slider.prop = "-" + slider.pfx + "-transform";
+              return true;
             }
+          }
+          return false;
+        }());
+        // CONTROLSCONTAINER:
+        if (vars.controlsContainer !== "") slider.controlsContainer = $(vars.controlsContainer).length > 0 && $(vars.controlsContainer);
+        // MANUAL:
+        if (vars.manualControls !== "") slider.manualControls = $(vars.manualControls).length > 0 && $(vars.manualControls);
+        
+        // RANDOMIZE:
+        if (vars.randomize) {
+          slider.slides.sort(function() { return (Math.round(Math.random())-0.5); });
+          slider.container.empty().append(slider.slides);
         }
-        return -1;
-    }
-
-    /**
-     * Checks if given value is an array
-     * @param {*} object
-     * @returns {boolean}
-     * @private
-     */
-    function _isArray(object) {
-        return Object.prototype.toString.call(object) === '[object Array]';
-    }
-
-    /**
-     * Checks if given value is a string
-     * @param {*} object
-     * @returns {boolean}
-     * @private
-     */
-    function _isString(object) {
-        return typeof object === 'string';
-    }
-
-    /**
-     * Checks if given value is a number
-     * @param {*} object
-     * @returns {boolean}
-     * @private
-     */
-    function _isNumeric(object) {
-        return typeof object === 'number' && isFinite(object);
-    }
-
-    /**
-     * Checks if given value is an object
-     * @param {*} object
-     * @returns {boolean}
-     * @private
-     */
-    function _isObject(object) {
-        return typeof object === 'object';
-    }
-
-    /**
-     * Checks if given value is a function
-     * @param {*} object
-     * @returns {boolean}
-     * @private
-     */
-    function _isFunction(object) {
-        return typeof object === 'function';
-    }
-
-    /**
-     * Checks if javascript object is plain object
-     * @param object
-     * @returns {*|boolean}
-     * @private
-     */
-    function _isLiteralObject(object) {
-        return object && typeof object === "object" && Object.getPrototypeOf(object) === Object.getPrototypeOf({});
-    }
-
-    /**
-     * Checks if object is iterable
-     * @param {Object} object
-     * @returns {boolean}
-     * @private
-     */
-    function _isIterable(object) {
-        if (Dom.isNode(object) || Dom.isElement(object) || object === window) {
-            return false;
-        }
-
-        var r = _isLiteralObject(object) || _isArray(object) || (typeof object === 'object' && object !== null && object['length'] !== undefined);
-        return r;
-    }
-
-    /**
-     * Clones object and returns its copy.
-     * Copies Objects, Arrays, Functions and primitives.
-     *
-     * @param {Object} object
-     * @private
-     */
-    function _cloneObject(object) {
-        var copy;
-        var property;
-        var type;
-
-        if (!_isObject(object) || object === null) {
-            copy = object;
-            return copy;
-        }
-
-        if (_isArray(object)) {
-            copy = [];
-            for (var i = 0, l = object.length; i < l; i++) {
-                copy[i] = _cloneObject(object[i]);
+        
+        slider.doMath();
+        
+        // ASNAV:
+        if (asNav) methods.asNav.setup();
+        
+        // INIT
+        slider.setup("init");
+        
+        // CONTROLNAV:
+        if (vars.controlNav) methods.controlNav.setup();
+        
+        // DIRECTIONNAV:
+        if (vars.directionNav) methods.directionNav.setup();
+        
+        // KEYBOARD:
+        if (vars.keyboard && ($(slider.containerSelector).length === 1 || vars.multipleKeyboard)) {
+          $(document).bind('keyup', function(event) {
+            var keycode = event.keyCode;
+            if (!slider.animating && (keycode === 39 || keycode === 37)) {
+              var target = (keycode === 39) ? slider.getTarget('next') :
+                           (keycode === 37) ? slider.getTarget('prev') : false;
+              slider.flexAnimate(target, vars.pauseOnAction);
             }
-            return copy;
+          });
         }
-
-        try {
-            copy = new object.constructor();
-        } catch (e) {
-            copy = {};
+        // MOUSEWHEEL:
+        if (vars.mousewheel) {
+          slider.bind('mousewheel', function(event, delta, deltaX, deltaY) {
+            event.preventDefault();
+            var target = (delta < 0) ? slider.getTarget('next') : slider.getTarget('prev');
+            slider.flexAnimate(target, vars.pauseOnAction);
+          });
         }
-
-        for (property in object) {
-            if (!object.hasOwnProperty(property)) {
-                continue;
-            }
-
-            if (_isObject(object[property]) && object[property] !== null) {
-                copy[property] = _cloneObject(object[property]);
-            } else {
-                copy[property] = object[property];
-            }
+        
+        // PAUSEPLAY
+        if (vars.pausePlay) methods.pausePlay.setup();
+        
+        // SLIDSESHOW
+        if (vars.slideshow) {
+          if (vars.pauseOnHover) {
+            slider.hover(function() {
+              if (!slider.manualPlay && !slider.manualPause) slider.pause();
+            }, function() {
+              if (!slider.manualPause && !slider.manualPlay) slider.play();
+            });
+          }
+          // initialize animation
+          (vars.initDelay > 0) ? setTimeout(slider.play, vars.initDelay) : slider.play();
         }
-        return copy;
-    }
-
-    /**
-     * Simple extend object helper
-     * @param {Object} a base object
-     * @param {Object} b extender object
-     * @returns {Object}
-     * @private
-     */
-    function _extendObject(a, b) {
-        for ( var prop in b ) {
-            a[ prop ] = b[ prop ];
-        }
-        return a;
-    }
-
-    /**
-     * Gets element's computed style
-     * @param element
-     * @param prop
-     * @returns {*}
-     * @private
-     */
-    function _getComputedStyle(element, prop) {
-
-        var computedStyle;
-
-        if (typeof window.getComputedStyle === 'function') { //normal browsers
-            computedStyle = window.getComputedStyle(element);
-        } else if (typeof document.currentStyle !== undefined) { //shitty browsers
-            computedStyle = element.currentStyle;
-        } else {
-            computedStyle = element.style;
-        }
-
-        if (prop) {
-            return computedStyle[prop];
-        } else {
-            return computedStyle;
-        }
-    }
-
-    /**
-     *
-     * @param object
-     * @param callback
-     * @private
-     */
-    function _each(object, callback) {
-        if (_isArray(object) || (typeof object === 'object' && object['length'] !== undefined)) {
-            for (var i = 0, l = object.length; i < l; i++) {
-                callback.apply(object[i], [object[i], i]);
-            }
-            return;
-        }
-
-        if (_isLiteralObject(object)) {
-            for (var key in object) {
-                callback.apply(object[key], [object[key], key]);
-            }
-        }
-    }
-
-    var _domReadyHandlers = [];
-    var _domLoadedHandlers = [];
-    var _isDomReady = false;
-    var _isDomLoaded = false;
-    var _animationLastTime;
-
-    var addListener = document.addEventListener ? 'addEventListener' : 'attachEvent';
-    var removeListener = document.removeEventListener ? 'removeEventListener' : 'detachEvent';
-    var eventPrefix = document.addEventListener ? '' : 'on';
-    var createEvent = document.createEvent ? 'createEvent' : 'createEventObject';
-    var dispatchEvent = document.dispatchEvent ? 'dispatchEvent' : 'fireEvent';
-    var vendors = ['-moz-', '-ms-', '-webkit-', '-o-', ''];
-    var cssNameProperty = function(prop) {return prop;};
-    var requestAnimationFrame = window.requestAnimationFrame;
-    var cancelAnimationFrame = window.cancelAnimationFrame || window.cancelRequestAnimationFrame;
-    var div = document.createElement('div');
-    var style = _getComputedStyle(div);
-
-    //ie?
-    var ie = (function() {
-        var undef, v = 3, div = document.createElement('div'), all = div.getElementsByTagName('i');
-        while ( div.innerHTML = '<!--[if gt IE ' + (++v) + ']><i></i><![endif]-->', all[0]);
-        return v > 4 ? v : undef;
-    }());
-
-    //css name property detection
-    if (ie && ie < 9) {
-        cssNameProperty = function(prop) {
-            for(var exp=/-([a-z0-9])/; exp.test(prop); prop = prop.replace(exp,RegExp.$1.toUpperCase()));
-            return prop;
-        };
-    }
-    //transition detection
-    var transitionSupport = (function() {
-        for (var i in vendors) {
-            if (_isString(style[vendors[i] + 'transition'])) {
-                return true;
-            }
-        }
-        return false;
-    })();
-
-    //request animation pollyfill
-    if (!requestAnimationFrame || !cancelAnimationFrame ) {
-        for( var i = 0; i < vendors.length; i++ ) {
-            var vendor = vendors[i];
-            requestAnimationFrame = requestAnimationFrame || window[vendor + 'RequestAnimationFrame'];
-            cancelAnimationFrame = cancelAnimationFrame || window[vendor + 'CancelAnimationFrame'] || window[vendor + 'CancelRequestAnimationFrame'];
-        }
-    }
-
-    if (!requestAnimationFrame || !cancelAnimationFrame) {
-        requestAnimationFrame = function(callback) {
-            var currentTime = new Date().getTime();
-            var timeToCall = Math.max(0, 16 - (currentTime - _animationLastTime));
-            var id = window.setTimeout(function _requestAnimationFrameTimeout() {
-                callback(currentTime + timeToCall);
-            }, timeToCall);
-
-            _animationLastTime = currentTime + timeToCall;
-            return id;
-        };
-
-        cancelAnimationFrame = function(id) {
-            window.clearTimeout(id);
-        };
-    }
-
-    /**
-     * Draggable object presentation
-     * @param {HTMLElement} element
-     * @param {Object} options
-     * @constructor
-     */
-    var Draggable = function(element, options) {
-        var options = options || {};
-        this.element = element;
-        this.options = {
-            onDragStart: options.onDragStart || function() {},
-            onDragMove: options.onDragMove || function() {},
-            onDragEnd: options.onDragEnd || function() {},
-            handler: options.handler || element,
-            cursor: options.cursor || 'move',
-            axis: options.axis || false,
-            grid: options.grid || [1, 1],
-            constrain: options.constrain || false
-        };
-        this.isDragging = false;
-        this.position = {
-            x: 'auto',
-            y: 'auto'
-        };
-        this._savedCursorState = this.options.handler.style.cursor;
-
-        function _onDragStart(e) {
-
-            if (e.button != Dom.Mouse.BUTTON_LEFT) {
-                return;
-            }
+        
+        // TOUCH
+        if (touch && vars.touch) methods.touch();
+        
+        // FADE&&SMOOTHHEIGHT || SLIDE:
+        if (!fade || (fade && vars.smoothHeight)) $(window).bind("resize focus", methods.resize);
+        
+        
+        // API: start() Callback
+        setTimeout(function(){
+          vars.start(slider);
+        }, 200);
+      },
+      asNav: {
+        setup: function() {
+          slider.asNav = true;
+          slider.animatingTo = Math.floor(slider.currentSlide/slider.move);
+          slider.currentItem = slider.currentSlide;
+          slider.slides.removeClass(namespace + "active-slide").eq(slider.currentItem).addClass(namespace + "active-slide");
+          slider.slides.click(function(e){
             e.preventDefault();
-
-            var self = this;
-            var style = _getComputedStyle(self.element);
-            self.isDragging = true;
-            self.deltaX = 0;
-            self.deltaY = 0;
-            self.position.x = parseInt(style['left']);
-            self.position.y = parseInt(style['top']);
-            self.startX = e.x;
-            self.startY = e.y;
-            self.offset = Dom.offset(self.element);
-            self.options.onDragStart.call(self, e);
-
-            if (isNaN(self.position.x)) {
-                self.position.x = 0;
+            var $slide = $(this),
+                target = $slide.index();
+            if (!$(vars.asNavFor).data('flexslider').animating && !$slide.hasClass('active')) {
+              slider.direction = (slider.currentItem < target) ? "next" : "prev";
+              slider.flexAnimate(target, vars.pauseOnAction, false, true, true);
             }
-
-            if (isNaN(self.position.y)) {
-                self.position.y = 0;
+          });
+        }
+      },
+      controlNav: {
+        setup: function() {
+          if (!slider.manualControls) {
+            methods.controlNav.setupPaging();
+          } else { // MANUALCONTROLS:
+            methods.controlNav.setupManual();
+          }
+        },
+        setupPaging: function() {
+          var type = (vars.controlNav === "thumbnails") ? 'control-thumbs' : 'control-paging',
+              j = 1,
+              item;
+          
+          slider.controlNavScaffold = $('<ol class="'+ namespace + 'control-nav ' + namespace + type + '"></ol>');
+          
+          if (slider.pagingCount > 1) {
+            for (var i = 0; i < slider.pagingCount; i++) {
+              item = (vars.controlNav === "thumbnails") ? '<img src="' + slider.slides.eq(i).attr("data-thumb") + '"/>' : '<a>' + j + '</a>';
+              slider.controlNavScaffold.append('<li>' + item + '</li>');
+              j++;
             }
+          }
+          
+          // CONTROLSCONTAINER:
+          (slider.controlsContainer) ? $(slider.controlsContainer).append(slider.controlNavScaffold) : slider.append(slider.controlNavScaffold);
+          methods.controlNav.set();
+          
+          methods.controlNav.active();
+        
+          slider.controlNavScaffold.delegate('a, img', eventType, function(event) {
+            event.preventDefault();
+            var $this = $(this),
+                target = slider.controlNav.index($this);
 
-            var position = style['position'];
-            if (position != 'relative' && position != 'absolute') {
-                position = 'relative';
+            if (!$this.hasClass(namespace + 'active')) {
+              slider.direction = (target > slider.currentSlide) ? "next" : "prev";
+              slider.flexAnimate(target, vars.pauseOnAction);
             }
-
-            Dom.css(self.element, {
-                position: position,
-                top: self.position.y + 'px',
-                left: self.position.x + 'px',
-                '-moz-user-select': 'none',
-                '-webkit-user-select': 'none',
-                'user-select': 'none',
-                '::selection': 'none'
+          });
+          // Prevent iOS click event bug
+          if (touch) {
+            slider.controlNavScaffold.delegate('a', "click touchstart", function(event) {
+              event.preventDefault();
             });
-
-            Dom.css(self.options.handler, {
-                cursor: self.options.cursor
+          }
+        },
+        setupManual: function() {
+          slider.controlNav = slider.manualControls;
+          methods.controlNav.active();
+          
+          slider.controlNav.live(eventType, function(event) {
+            event.preventDefault();
+            var $this = $(this),
+                target = slider.controlNav.index($this);
+                
+            if (!$this.hasClass(namespace + 'active')) {
+              (target > slider.currentSlide) ? slider.direction = "next" : slider.direction = "prev";
+              slider.flexAnimate(target, vars.pauseOnAction);
+            }
+          });
+          // Prevent iOS click event bug
+          if (touch) {
+            slider.controlNav.live("click touchstart", function(event) {
+              event.preventDefault();
             });
-
-            (function _animate() {
-
-                if (self.isDragging) {
-                    requestAnimationFrame(_animate);
-                } else {
-                    return;
-                }
-                var y = self.deltaY + 'px';
-                var x = self.deltaX + 'px';
-
-
-                if (transitionSupport) {
-                    for (var i in vendors) {
-                        var transform = vendors[i] + 'transform';
-                        self.element.style[transform] = 'translate(' + x + ',' + y + ')';
-                    }
-                } else {
-                    self.element.style.top = self.position.y + self.deltaY + 'px';
-                    self.element.style.left = self.position.x + self.deltaX + 'px';
-                }
-            })();
-
-            function _onDrag(e) {
-                var deltaX = e.x - self.startX;
-                var deltaY = e.y - self.startY;
-                var gridX = self.options.grid[0];
-                var gridY = self.options.grid[1];
-
-                if (gridX > 1) {
-                    deltaX = Math.round(deltaX / gridX) * gridX;
-                }
-
-                if (gridY > 1) {
-                    deltaY = Math.round(deltaY / gridY) * gridY;
-                }
-
-                var isConstainedToElement = Dom.isElement(self.options.constrain);
-                var isConstainedToRectangle = _isArray(self.options.constrain) && self.options.constrain.length === 4;
-
-                if (self.options.constrain && (isConstainedToElement || isConstainedToRectangle)) {
-                    if (isConstainedToElement) {
-                        var offset = Dom.offset(self.options.constrain);
-                        var rectangle = [offset.left, offset.top, offset.width, offset.height];
-                    } else {
-                        var rectangle = self.options.constrain;
-                    }
-
-                    var minDeltaY = rectangle[1] - self.offset.top;
-                    var maxDeltaY = rectangle[1] + rectangle[3] - (self.offset.top + self.offset.height);
-
-                    if (deltaY <= 0 && deltaY < minDeltaY) {
-                        deltaY = minDeltaY;
-                    }
-
-                    if (deltaY >= 0 && deltaY > maxDeltaY) {
-                        deltaY = maxDeltaY;
-                    }
-
-                    var minDeltaX = rectangle[0] - self.offset.left;
-                    var maxDeltaX = rectangle[0] + rectangle[2] - (self.offset.left + self.offset.width);
-
-                    if (deltaX <= 0 && deltaX < minDeltaX) {
-                        deltaX = minDeltaX;
-                    }
-
-                    if (deltaX >= 0 && deltaX > maxDeltaX) {
-                        deltaX = maxDeltaX;
-                    }
-                }
-
-                switch (self.options.axis) {
-                    case 'x':
-                        self.deltaX = deltaX;
-                        break;
-                    case 'y':
-                        self.deltaY = deltaY;
-                        break;
-                    default:
-                        self.deltaX = deltaX;
-                        self.deltaY = deltaY;
-                        break;
-                }
-
-                e.target = self.options.handler;//fix target
-                self.options.onDragMove.call(self, e);
-            }
-
-            function _onDragEnd(e) {
-                self.isDragging = false;
-                Dom.removeListener(document, Dom.Event.ON_MOUSEMOVE, _onDrag);
-                Dom.removeListener(document, Dom.Event.ON_TOUCHMOVE, _onDrag);
-                Dom.removeListener(document, Dom.Event.ON_MOUSEUP, _onDragEnd);
-                Dom.removeListener(document, Dom.Event.ON_TOUCHEND, _onDragEnd);
-
-
-                var y = self.position.y + self.deltaY + 'px';
-                var x = self.position.x + self.deltaX + 'px';
-                self.element.style.top = y;
-                self.element.style.left = x;
-
-                if (transitionSupport) {
-                    for (var i in vendors) {
-                        var transform = vendors[i] + 'transform';
-                        self.element.style[transform] = "";
-                    }
-                }
-                self.options.handler.style.cursor = self._savedCursorState;
-
-                e.target = self.options.handler;//fix target
-                self.options.onDragEnd.call(self, e);
-            }
-
-            Dom.onMouseMove(document, _onDrag);
-            Dom.onTouchMove(document, _onDrag);//support touch devices
-            Dom.onMouseUp(document, _onDragEnd);
-            Dom.onTouchEnd(document, _onDragEnd);//support touch devices
+          }
+        },
+        set: function() {
+          var selector = (vars.controlNav === "thumbnails") ? 'img' : 'a';
+          slider.controlNav = $('.' + namespace + 'control-nav li ' + selector, (slider.controlsContainer) ? slider.controlsContainer : slider);
+        },
+        active: function() {
+          slider.controlNav.removeClass(namespace + "active").eq(slider.animatingTo).addClass(namespace + "active");
+        },
+        update: function(action, pos) {
+          if (slider.pagingCount > 1 && action === "add") {
+            slider.controlNavScaffold.append($('<li><a>' + slider.count + '</a></li>'));
+          } else if (slider.pagingCount === 1) {
+            slider.controlNavScaffold.find('li').remove();
+          } else {
+            slider.controlNav.eq(pos).closest('li').remove();
+          }
+          methods.controlNav.set();
+          (slider.pagingCount > 1 && slider.pagingCount !== slider.controlNav.length) ? slider.update(pos, action) : methods.controlNav.active();
         }
-        Dom.onMouseDown(this.options.handler, _onDragStart.bind(this));
-        Dom.onTouchStart(this.options.handler, _onDragStart.bind(this));//support touch devices
-    };
-
-    /**
-     * Checks if given object is a DOMElement
-     * @param {object} element
-     * @returns {boolean}
-     */
-    Dom.isElement = function(element) {
-        if (typeof HTMLElement === 'object') {
-            return element instanceof HTMLElement;
-        }
-
-        return element && typeof element === 'object' && element.nodeType === 1 && typeof  element.nodeName === 'string';
-    };
-
-    /**
-     * Checks if given parameter is a DOMNode
-     * @param node
-     * @returns {*}
-     */
-    Dom.isNode = function(node) {
-        if (typeof Node === 'object') {
-            return node instanceof Node;
-        }
-        return node && typeof node === 'object' && typeof node.nodeType === 'number' && typeof node.nodeName === 'string';
-    };
-
-    /**
-     * Polyfill for window.requestAnimationFrame
-     * @see https://developer.mozilla.org/en-US/docs/Web/API/window.requestAnimationFrame
-     * @returns {Function}
-     */
-    Dom.requestAnimationFrame = function() {
-        return requestAnimationFrame;
-    };
-
-    /**
-     * Polyfill for window.cancelAnimationFrame
-     * @see https://developer.mozilla.org/en-US/docs/Web/API/window.cancelAnimationFrame
-     * @returns {Function}
-     */
-    Dom.cancelAnimationFrame = function() {
-        return cancelAnimationFrame;
-    };
-
-    /**
-     * Makes element draggable
-     * @param {HTMLElement} element
-     * @param {Object} options
-     * @returns {Draggable}
-     */
-    Dom.draggable = function(element, options) {
-        return new Draggable(element, options);
-    };
-
-
-    /**
-     * Normalized Event object
-     *
-     * @param {DOMEvent} e
-     * @constructor
-     */
-    Dom.Event = function(e) {
-        this._e = e;
-        /**
-         * Stops event bubbling
-         */
-        Dom.Event.prototype.stopPropagation = function() {
-            if (this._e.stopPropagation) {
-                this._e.stopPropagation();
+      },
+      directionNav: {
+        setup: function() {
+          var directionNavScaffold = $('<ul class="' + namespace + 'direction-nav"><li><a class="' + namespace + 'prev" href="#">' + vars.prevText + '</a></li><li><a class="' + namespace + 'next" href="#">' + vars.nextText + '</a></li></ul>');
+        
+          // CONTROLSCONTAINER:
+          if (slider.controlsContainer) {
+            $(slider.controlsContainer).append(directionNavScaffold);
+            slider.directionNav = $('.' + namespace + 'direction-nav li a', slider.controlsContainer);
+          } else {
+            slider.append(directionNavScaffold);
+            slider.directionNav = $('.' + namespace + 'direction-nav li a', slider);
+          }
+        
+          methods.directionNav.update();
+        
+          slider.directionNav.bind(eventType, function(event) {
+            event.preventDefault();
+            var target = ($(this).hasClass(namespace + 'next')) ? slider.getTarget('next') : slider.getTarget('prev');
+            slider.flexAnimate(target, vars.pauseOnAction);
+          });
+          // Prevent iOS click event bug
+          if (touch) {
+            slider.directionNav.bind("click touchstart", function(event) {
+              event.preventDefault();
+            });
+          }
+        },
+        update: function() {
+          var disabledClass = namespace + 'disabled';
+          if (slider.pagingCount === 1) {
+            slider.directionNav.addClass(disabledClass);
+          } else if (!vars.animationLoop) {
+            if (slider.animatingTo === 0) {
+              slider.directionNav.removeClass(disabledClass).filter('.' + namespace + "prev").addClass(disabledClass);
+            } else if (slider.animatingTo === slider.last) {
+              slider.directionNav.removeClass(disabledClass).filter('.' + namespace + "next").addClass(disabledClass);
             } else {
-                this._e.cancelBubble = true;
+              slider.directionNav.removeClass(disabledClass);
             }
-        };
+          } else {
+            slider.directionNav.removeClass(disabledClass);
+          }
+        }
+      },
+      pausePlay: {
+        setup: function() {
+          var pausePlayScaffold = $('<div class="' + namespace + 'pauseplay"><a></a></div>');
+        
+          // CONTROLSCONTAINER:
+          if (slider.controlsContainer) {
+            slider.controlsContainer.append(pausePlayScaffold);
+            slider.pausePlay = $('.' + namespace + 'pauseplay a', slider.controlsContainer);
+          } else {
+            slider.append(pausePlayScaffold);
+            slider.pausePlay = $('.' + namespace + 'pauseplay a', slider);
+          }
 
-        /**
-         * Prevents default behaviour
-         */
-        Dom.Event.prototype.preventDefault = function() {
-            if (this._e.preventDefault) {
-                this._e.preventDefault();
+          methods.pausePlay.update((vars.slideshow) ? namespace + 'pause' : namespace + 'play');
+
+          slider.pausePlay.bind(eventType, function(event) {
+            event.preventDefault();
+            if ($(this).hasClass(namespace + 'pause')) {
+              slider.manualPause = true;
+              slider.manualPlay = false;
+              slider.pause();
             } else {
-                this._e.returnValue = false;
+              slider.manualPause = false;
+              slider.manualPlay = true;
+              slider.play();
             }
-        };
+          });
+          // Prevent iOS click event bug
+          if (touch) {
+            slider.pausePlay.bind("click touchstart", function(event) {
+              event.preventDefault();
+            });
+          }
+        },
+        update: function(state) {
+          (state === "play") ? slider.pausePlay.removeClass(namespace + 'pause').addClass(namespace + 'play').text(vars.playText) : slider.pausePlay.removeClass(namespace + 'play').addClass(namespace + 'pause').text(vars.pauseText);
+        }
+      },
+      touch: function() {
+        var startX,
+          startY,
+          offset,
+          cwidth,
+          dx,
+          startT,
+          scrolling = false;
+              
+        el.addEventListener('touchstart', onTouchStart, false);
+        function onTouchStart(e) {
+          if (slider.animating) {
+            e.preventDefault();
+          } else if (e.touches.length === 1) {
+            slider.pause();
+            // CAROUSEL: 
+            cwidth = (vertical) ? slider.h : slider. w;
+            startT = Number(new Date());
+            // CAROUSEL:
+            offset = (carousel && reverse && slider.animatingTo === slider.last) ? 0 :
+                     (carousel && reverse) ? slider.limit - (((slider.itemW + vars.itemMargin) * slider.move) * slider.animatingTo) :
+                     (carousel && slider.currentSlide === slider.last) ? slider.limit :
+                     (carousel) ? ((slider.itemW + vars.itemMargin) * slider.move) * slider.currentSlide : 
+                     (reverse) ? (slider.last - slider.currentSlide + slider.cloneOffset) * cwidth : (slider.currentSlide + slider.cloneOffset) * cwidth;
+            startX = (vertical) ? e.touches[0].pageY : e.touches[0].pageX;
+            startY = (vertical) ? e.touches[0].pageX : e.touches[0].pageY;
 
-        this.target = this._e.target || this._e.srcElement;
-        this.ctrlKey = this._e.ctrlKey;
-        this.shiftKey = this._e.shiftKey;
-        this.altKey = this._e.altKey;
-        this.layerY = this._e.layerY || this._e.offsetY;
-        this.layerX = this._e.layerX || this._e.offsetX;
-        this.x = this._e.x ||this. _e.clientX;
-        this.y = this._e.y || this._e.clientY;
-        this.keyCode = this._e.keyCode;
-        this.name = this.type = this._e.type;
-        this.path = this._e.path;
-        this.timeStamp = this._e.timeStamp;
-        if (ie & ie < 9) {
-            this.button = this._e.button == 1 ? Dom.Mouse.BUTTON_LEFT : (this._e.button == 4 ? Dom.Mouse.BUTTON_MIDDLE : Dom.Mouse.BUTTON_RIGHT);
-        } else if (this._e.hasOwnProperty('which')) {
-            this.button = this._e.which == 1 ? Dom.Mouse.BUTTON_LEFT : (this._e.which == 2 ? Dom.Mouse.BUTTON_MIDDLE : Dom.Mouse.BUTTON_RIGHT);
+            el.addEventListener('touchmove', onTouchMove, false);
+            el.addEventListener('touchend', onTouchEnd, false);
+          }
+        }
+
+        function onTouchMove(e) {
+          dx = (vertical) ? startX - e.touches[0].pageY : startX - e.touches[0].pageX;
+          scrolling = (vertical) ? (Math.abs(dx) < Math.abs(e.touches[0].pageX - startY)) : (Math.abs(dx) < Math.abs(e.touches[0].pageY - startY));
+          
+          if (!scrolling || Number(new Date()) - startT > 500) {
+            e.preventDefault();
+            if (!fade && slider.transitions) {
+              if (!vars.animationLoop) {
+                dx = dx/((slider.currentSlide === 0 && dx < 0 || slider.currentSlide === slider.last && dx > 0) ? (Math.abs(dx)/cwidth+2) : 1);
+              }
+              slider.setProps(offset + dx, "setTouch");
+            }
+          }
+        }
+        
+        function onTouchEnd(e) {
+          // finish the touch by undoing the touch session
+          el.removeEventListener('touchmove', onTouchMove, false);
+          
+          if (slider.animatingTo === slider.currentSlide && !scrolling && !(dx === null)) {
+            var updateDx = (reverse) ? -dx : dx,
+                target = (updateDx > 0) ? slider.getTarget('next') : slider.getTarget('prev');
+            
+            if (slider.canAdvance(target) && (Number(new Date()) - startT < 550 && Math.abs(updateDx) > 50 || Math.abs(updateDx) > cwidth/2)) {
+              slider.flexAnimate(target, vars.pauseOnAction);
+            } else {
+              if (!fade) slider.flexAnimate(slider.currentSlide, vars.pauseOnAction, true);
+            }
+          }
+          el.removeEventListener('touchend', onTouchEnd, false);
+          startX = null;
+          startY = null;
+          dx = null;
+          offset = null;
+        }
+      },
+      resize: function() {
+        if (!slider.animating && slider.is(':visible')) {
+          if (!carousel) slider.doMath();
+          
+          if (fade) {
+            // SMOOTH HEIGHT:
+            methods.smoothHeight();
+          } else if (carousel) { //CAROUSEL:
+            slider.slides.width(slider.computedW);
+            slider.update(slider.pagingCount);
+            slider.setProps();
+          }
+          else if (vertical) { //VERTICAL:
+            slider.viewport.height(slider.h);
+            slider.setProps(slider.h, "setTotal");
+          } else {
+            // SMOOTH HEIGHT:
+            if (vars.smoothHeight) methods.smoothHeight();
+            slider.newSlides.width(slider.computedW);
+            slider.setProps(slider.computedW, "setTotal");
+          }
+        }
+      },
+      smoothHeight: function(dur) {
+        if (!vertical || fade) {
+          var $obj = (fade) ? slider : slider.viewport;
+          (dur) ? $obj.animate({"height": slider.slides.eq(slider.animatingTo).height()}, dur) : $obj.height(slider.slides.eq(slider.animatingTo).height());
+        }
+      },
+      sync: function(action) {
+        var $obj = $(vars.sync).data("flexslider"),
+            target = slider.animatingTo;
+        
+        switch (action) {
+          case "animate": $obj.flexAnimate(target, vars.pauseOnAction, false, true); break;
+          case "play": if (!$obj.playing && !$obj.asNav) { $obj.play(); } break;
+          case "pause": $obj.pause(); break;
+        }
+      }
+    }
+    
+    // public methods
+    slider.flexAnimate = function(target, pause, override, withSync, fromNav) {
+      if (asNav && slider.pagingCount === 1) slider.direction = (slider.currentItem < target) ? "next" : "prev";
+      
+      if (!slider.animating && (slider.canAdvance(target, fromNav) || override) && slider.is(":visible")) {
+        if (asNav && withSync) {
+          var master = $(vars.asNavFor).data('flexslider');
+          slider.atEnd = target === 0 || target === slider.count - 1;
+          master.flexAnimate(target, true, false, true, fromNav);
+          slider.direction = (slider.currentItem < target) ? "next" : "prev";
+          master.direction = slider.direction;
+          
+          if (Math.ceil((target + 1)/slider.visible) - 1 !== slider.currentSlide && target !== 0) {
+            slider.currentItem = target;
+            slider.slides.removeClass(namespace + "active-slide").eq(target).addClass(namespace + "active-slide");
+            target = Math.floor(target/slider.visible);
+          } else {
+            slider.currentItem = target;
+            slider.slides.removeClass(namespace + "active-slide").eq(target).addClass(namespace + "active-slide");
+            return false;
+          }
+        }
+        
+        slider.animating = true;
+        slider.animatingTo = target;
+        // API: before() animation Callback
+        vars.before(slider);
+        
+        // SLIDESHOW:
+        if (pause) slider.pause();
+        
+        // SYNC:
+        if (slider.syncExists && !fromNav) methods.sync("animate");
+        
+        // CONTROLNAV
+        if (vars.controlNav) methods.controlNav.active();
+        
+        // !CAROUSEL:
+        // CANDIDATE: slide active class (for add/remove slide)
+        if (!carousel) slider.slides.removeClass(namespace + 'active-slide').eq(target).addClass(namespace + 'active-slide');
+        
+        // INFINITE LOOP:
+        // CANDIDATE: atEnd
+        slider.atEnd = target === 0 || target === slider.last;
+        
+        // DIRECTIONNAV:
+        if (vars.directionNav) methods.directionNav.update();
+        
+        if (target === slider.last) {
+          // API: end() of cycle Callback
+          vars.end(slider);
+          // SLIDESHOW && !INFINITE LOOP:
+          if (!vars.animationLoop) slider.pause();
+        }
+        
+        // SLIDE:
+        if (!fade) {
+          var dimension = (vertical) ? slider.slides.filter(':first').height() : slider.computedW,
+              margin, slideString, calcNext;
+          
+          // INFINITE LOOP / REVERSE:
+          if (carousel) {
+            margin = (vars.itemWidth > slider.w) ? vars.itemMargin * 2 : vars.itemMargin;
+            calcNext = ((slider.itemW + margin) * slider.move) * slider.animatingTo;
+            slideString = (calcNext > slider.limit && slider.visible !== 1) ? slider.limit : calcNext;
+          } else if (slider.currentSlide === 0 && target === slider.count - 1 && vars.animationLoop && slider.direction !== "next") {
+            slideString = (reverse) ? (slider.count + slider.cloneOffset) * dimension : 0;
+          } else if (slider.currentSlide === slider.last && target === 0 && vars.animationLoop && slider.direction !== "prev") {
+            slideString = (reverse) ? 0 : (slider.count + 1) * dimension;
+          } else {
+            slideString = (reverse) ? ((slider.count - 1) - target + slider.cloneOffset) * dimension : (target + slider.cloneOffset) * dimension;
+          }
+          slider.setProps(slideString, "", vars.animationSpeed);
+          if (slider.transitions) {
+            if (!vars.animationLoop || !slider.atEnd) {
+              slider.animating = false;
+              slider.currentSlide = slider.animatingTo;
+            }
+            slider.container.unbind("webkitTransitionEnd transitionend");
+            slider.container.bind("webkitTransitionEnd transitionend", function() {
+              slider.wrapup(dimension);
+            });
+          } else {
+            slider.container.animate(slider.args, vars.animationSpeed, vars.easing, function(){
+              slider.wrapup(dimension);
+            });
+          }
+        } else { // FADE:
+          if (!touch) {
+            slider.slides.eq(slider.currentSlide).fadeOut(vars.animationSpeed, vars.easing);
+            slider.slides.eq(target).fadeIn(vars.animationSpeed, vars.easing, slider.wrapup);
+          } else {
+            slider.slides.eq(slider.currentSlide).css({ "opacity": 0 });
+            slider.slides.eq(target).css({ "opacity": 1 });
+            slider.animating = false;
+            slider.currentSlide = slider.animatingTo;
+          }
+        }
+        // SMOOTH HEIGHT:
+        if (vars.smoothHeight) methods.smoothHeight(vars.animationSpeed);
+      }
+    } 
+    slider.wrapup = function(dimension) {
+      // SLIDE:
+      if (!fade && !carousel) {
+        if (slider.currentSlide === 0 && slider.animatingTo === slider.last && vars.animationLoop) {
+          slider.setProps(dimension, "jumpEnd");
+        } else if (slider.currentSlide === slider.last && slider.animatingTo === 0 && vars.animationLoop) {
+          slider.setProps(dimension, "jumpStart");
+        }
+      }
+      slider.animating = false;
+      slider.currentSlide = slider.animatingTo;
+      // API: after() animation Callback
+      vars.after(slider);
+    }
+    
+    // SLIDESHOW:
+    slider.animateSlides = function() {
+      if (!slider.animating) slider.flexAnimate(slider.getTarget("next"));
+    }
+    // SLIDESHOW:
+    slider.pause = function() {
+      clearInterval(slider.animatedSlides);
+      slider.playing = false;
+      // PAUSEPLAY:
+      if (vars.pausePlay) methods.pausePlay.update("play");
+      // SYNC:
+      if (slider.syncExists) methods.sync("pause");
+    }
+    // SLIDESHOW:
+    slider.play = function() {
+      slider.animatedSlides = setInterval(slider.animateSlides, vars.slideshowSpeed);
+      slider.playing = true;
+      // PAUSEPLAY:
+      if (vars.pausePlay) methods.pausePlay.update("pause");
+      // SYNC:
+      if (slider.syncExists) methods.sync("play");
+    }
+    slider.canAdvance = function(target, fromNav) {
+      // ASNAV:
+      var last = (asNav) ? slider.pagingCount - 1 : slider.last;
+      return (fromNav) ? true :
+             (asNav && slider.currentItem === slider.count - 1 && target === 0 && slider.direction === "prev") ? true :
+             (asNav && slider.currentItem === 0 && target === slider.pagingCount - 1 && slider.direction !== "next") ? false :
+             (target === slider.currentSlide && !asNav) ? false :
+             (vars.animationLoop) ? true :
+             (slider.atEnd && slider.currentSlide === 0 && target === last && slider.direction !== "next") ? false :
+             (slider.atEnd && slider.currentSlide === last && target === 0 && slider.direction === "next") ? false :
+             true;
+    }
+    slider.getTarget = function(dir) {
+      slider.direction = dir; 
+      if (dir === "next") {
+        return (slider.currentSlide === slider.last) ? 0 : slider.currentSlide + 1;
+      } else {
+        return (slider.currentSlide === 0) ? slider.last : slider.currentSlide - 1;
+      }
+    }
+    
+    // SLIDE:
+    slider.setProps = function(pos, special, dur) {
+      var target = (function() {
+        var posCheck = (pos) ? pos : ((slider.itemW + vars.itemMargin) * slider.move) * slider.animatingTo,
+            posCalc = (function() {
+              if (carousel) {
+                return (special === "setTouch") ? pos :
+                       (reverse && slider.animatingTo === slider.last) ? 0 :
+                       (reverse) ? slider.limit - (((slider.itemW + vars.itemMargin) * slider.move) * slider.animatingTo) :
+                       (slider.animatingTo === slider.last) ? slider.limit : posCheck;
+              } else {
+                switch (special) {
+                  case "setTotal": return (reverse) ? ((slider.count - 1) - slider.currentSlide + slider.cloneOffset) * pos : (slider.currentSlide + slider.cloneOffset) * pos;
+                  case "setTouch": return (reverse) ? pos : pos;
+                  case "jumpEnd": return (reverse) ? pos : slider.count * pos;
+                  case "jumpStart": return (reverse) ? slider.count * pos : pos;
+                  default: return pos;
+                }
+              }
+            }());
+            return (posCalc * -1) + "px";
+          }());
+
+      if (slider.transitions) {
+        target = (vertical) ? "translate3d(0," + target + ",0)" : "translate3d(" + target + ",0,0)";
+        dur = (dur !== undefined) ? (dur/1000) + "s" : "0s";
+        slider.container.css("-" + slider.pfx + "-transition-duration", dur);
+      }
+      
+      slider.args[slider.prop] = target;
+      if (slider.transitions || dur === undefined) slider.container.css(slider.args);
+    }
+    
+    slider.setup = function(type) {
+      // SLIDE:
+      if (!fade) {
+        var sliderOffset, arr;
+            
+        if (type === "init") {
+          slider.viewport = $('<div class="' + namespace + 'viewport"></div>').css({"overflow": "hidden", "position": "relative"}).appendTo(slider).append(slider.container);
+          // INFINITE LOOP:
+          slider.cloneCount = 0;
+          slider.cloneOffset = 0;
+          // REVERSE:
+          if (reverse) {
+            arr = $.makeArray(slider.slides).reverse();
+            slider.slides = $(arr);
+            slider.container.empty().append(slider.slides);
+          }
+        }
+        // INFINITE LOOP && !CAROUSEL:
+        if (vars.animationLoop && !carousel) {
+          slider.cloneCount = 2;
+          slider.cloneOffset = 1;
+          // clear out old clones
+          if (type !== "init") slider.container.find('.clone').remove();
+          slider.container.append(slider.slides.first().clone().addClass('clone')).prepend(slider.slides.last().clone().addClass('clone'));
+        }
+        slider.newSlides = $(vars.selector, slider);
+        
+        sliderOffset = (reverse) ? slider.count - 1 - slider.currentSlide + slider.cloneOffset : slider.currentSlide + slider.cloneOffset;
+        // VERTICAL:
+        if (vertical && !carousel) {
+          slider.container.height((slider.count + slider.cloneCount) * 200 + "%").css("position", "absolute").width("100%");
+          setTimeout(function(){
+            slider.newSlides.css({"display": "block"});
+            slider.doMath();
+            slider.viewport.height(slider.h);
+            slider.setProps(sliderOffset * slider.h, "init");
+          }, (type === "init") ? 100 : 0);
         } else {
-            this.button = this._e.button;
-        }
-    };
-
-    Dom.Mouse = {};
-
-    Dom.Mouse.BUTTON_LEFT = 0;
-    Dom.Mouse.BUTTON_MIDDLE = 1;
-    Dom.Mouse.BUTTON_RIGHT = 2;
-
-    /**
-     * Mouse events
-     */
-    Dom.Event.ON_CLICK = 'click';
-    Dom.Event.ON_DBLCLICK = 'dblclick';
-    Dom.Event.ON_CONTEXTMENU = 'contextmenu';
-    Dom.Event.ON_MOUSEDOWN = 'mousedown';
-    Dom.Event.ON_MOUSEENTER = 'mouseenter';
-    Dom.Event.ON_MOUSELEAVE = 'mouseleave';
-    Dom.Event.OM_MOUSEMOVE = 'mousemove';
-    Dom.Event.ON_MOUSEOVER = 'mouseover';
-    Dom.Event.ON_MOUSEOUT = 'mouseout';
-    Dom.Event.ON_MOUSEUP = 'mouseup';
-    Dom.Event.ON_MOUSEMOVE = 'mousemove';
-
-    /**
-     * Touch Events
-     */
-    Dom.Event.ON_TOUCHSTART = 'touchstart';
-    Dom.Event.ON_TOUCHEND = 'touchend';
-    Dom.Event.ON_TOUCHMOVE = 'touchmove';
-    Dom.Event.ON_TOUCHCANCEL = 'touchcancel';
-
-    /**
-     * Keyboard events
-     */
-    Dom.Event.ON_KEYDOWN = 'keydown';
-    Dom.Event.ON_KEYUP = 'keyup';
-    Dom.Event.ON_KEYPRESS = 'keypress';
-
-    /**
-     * UI Events
-     */
-
-        //form events
-    Dom.Event.ON_SELECT = 'select';
-    Dom.Event.ON_RESET = 'reset';
-    Dom.Event.ON_FOCUS = 'focus';
-    Dom.Event.ON_BLUR = 'blur';
-    Dom.Event.ON_SUBMIT = 'submit';
-    Dom.Event.ON_CHANGE = 'change';
-
-    //frame/window events
-    Dom.Event.ON_LOAD = 'load';
-    Dom.Event.ON_UNLOAD = 'unload';
-    Dom.Event.ON_RESIZE = 'resize';
-    Dom.Event.ON_UNLOAD = 'unload';
-    Dom.Event.ON_ERROR = 'error';
-    Dom.Event.ON_SCROLL = 'scroll';
-
-    /**
-     * Standard drag and drop events
-     */
-    Dom.Event.ON_DRAG = 'drag';
-    Dom.Event.ON_DRAGSTART = 'dragstart';
-    Dom.Event.ON_DRAGEND = 'dragend';
-    Dom.Event.ON_DRAGENTER = 'dragenter';
-    Dom.Event.ON_DRAGLEAVE = 'dragleave';
-    Dom.Event.ON_DRAGOVER = 'dragover';
-    Dom.Event.ON_DROP = 'drop';
-
-    /**
-     * Dom drag and drop events
-     */
-    Dom.Event.ON_DOM_DRAGSTART = 'onDomDragStart';
-    Dom.Event.ON_DOM_DRAGEND = 'onDomDragEnd';
-    Dom.Event.ON_DOM_DRAGMOVE = 'onDomDragMove';
-    Dom.Event.ON_DOM_DROP = 'onDomDrop';
-    Dom.Event.ON_DOM_DRAGENTER = 'onDomDragEnter';
-    Dom.Event.ON_DOM_DRAGLEAVE = 'onDomDragLeave';
-
-    /**
-     * Attaches javascript listener to the element(s) for the given event type
-     *
-     * @param {HTMLElement|NodeList} element
-     * @param {String} event
-     * @param {Function} listener
-     *
-     * @returns {Dom|false} returns Dom if listener has been attached otherwise false
-     */
-    Dom.addListener = function (element, event, listener) {
-        if (element === undefined) {
-            throw new Error("Parameter cannot be undefined");
-        }
-
-        if (_isIterable(element)) {
-            _each(element, function(e, index) {
-                Dom.addListener(e, event, listener);
-            });
-            return Dom;
-        }
-
-        if (!Dom.isNode(element) && element !== window) {
-            throw new Error(element + " is not a DOMNode object");
-        }
-
-        element._event = element._event || {};
-        element._event[event] = element._event[event] || { keys:[], values:[] };
-
-        //checks if listener already exists
-        if (_indexOf(element._event[event].keys, listener) != -1) {
-            return Dom;
-        }
-
-        element._event[event].keys.push(listener);
-        var _listener = function(e) {
-            var evt = new Dom.Event(e);
-            if (listener.call(element, evt) === false) {
-                e.stop();
-            }
-        };
-        element._event[event].values.push(_listener);
-
-        element[addListener](eventPrefix + event, _listener);
-
-        return Dom;
-    };
-
-    /**
-     * Execute all handlers and behaviors attached to the element(s)
-     * for the given event type
-     *
-     * @param {HTMLElement|NodeList} element
-     * @param {string} type
-     * @param {Object} options event options
-     * @returns {Dom}
-     */
-    Dom.dispatch = function(element, type, options) {
-        if (element === undefined) {
-            throw new Error("Parameter cannot be undefined");
-        }
-
-        if (_isIterable(element)) {
-
-            _each(element, function(e, index) {
-                Dom.dispatch(e, type, options);
-            });
-            return Dom;
-        }
-
-        if (!Dom.isNode(element)) {
-            throw new Error(element + " is not a DOMNode object");
-        }
-
-        if (!options) {
-            options = {};
-        }
-
-        var o = {
-            type: type,
-            view: options.view || element.ownerDocument.defaultView,
-            detail: options.detail || 1,
-            screenX: options.screenX || 0,
-            screenY: options.screenY || 0,
-            clientX: options.clientX || 0,
-            clientY: options.clientY || 0,
-            button: options.button || 0,
-            ctrlKey: options.ctrlKey || false,
-            altKey: options.altKey || false,
-            shiftKey: options.shiftKey || false,
-            metaKey: options.metaKey || false,
-            bubbles: options.bubbles || true,
-            cancelable: options.cancelable || true
-        };
-        var eventObjects = {
-            'HTMLEvents': /^(?:load|unload|abort|error|select|change|submit|reset|focus|blur|resize|scroll)$/,
-            'MouseEvents': /^(?:click|dblclick|mouse(?:down|up|over|move|out))$/
-        };
-        var eventClass = 'Event';
-        var event;
-
-        for (var name in eventObjects) {
-            if (eventObjects[name].test(type)) { eventClass = name; break; }
-        }
-
-        if (document.createEvent) {
-            event = element.ownerDocument.createEvent(eventClass);
-            if (eventClass == 'MouseEvents') {
-                event.initMouseEvent( o.type, o.bubbles, o.cancelable, o.view,
-                    o.detail, o.screenX, o.screenY, o.clientX, o.clientY, o.ctrlKey,
-                    o.altKey, o.shiftKey, o.metaKey, 0, null);
-            } else {
-                event.initEvent(type, o.bubbles, o.cancelable);
-            }
-            element.dispatchEvent(event);
-            return Dom;
-
-        } else if (document.createEventObject) {
-            o.clientX = o.pointerX;
-            o.clientY = o.pointerY;
-            event = document.createEventObject();
-            for (var key in o) {
-                event[key] = o[key];
-            }
-            element.fireEvent(eventPrefix + type, event);
-            return Dom;
-        }
-
-    };
-
-    /**
-     * Removes javascript listener from the element(s) for the given event type.
-     * @param {HTMLElement|NodeList} element
-     * @param {String} event
-     * @param {Function} listener
-     * @returns {object|false} returns Dom object if success otherwise false
-     */
-    Dom.removeListener = function (element, event, listener) {
-        if (element === undefined) {
-            throw new Error("Parameter cannot be undefined");
-        }
-
-        if (_isIterable(element)) {
-            _each(element, function(e, index) {
-                Dom.removeListener(e, event, listener);
-            });
-            return Dom;
-        }
-
-        if (!Dom.isNode(element) && element !== window) {
-            throw new Error(element + " is not a DOMNode object");
-        }
-
-        if (!element._event || !element._event[event]) {
-            return false;
-        }
-
-        var key = _indexOf(element._event[event].keys, listener);
-        if (key === -1) {
-            return false;
-        }
-        var _listener = element._event[event].values[key];
-
-        element[removeListener](eventPrefix + event, _listener);
-        delete element._event[event].values[key];
-        delete element._event[event].keys[key];
-
-        return Dom;
-    };
-
-    /**
-     * Determine whether a supplied listener is attached to the element
-     *
-     * @param {HTMLElement} element
-     * @param {String} event
-     * @param {Function} listener
-     * @returns {boolean}
-     */
-    Dom.hasListener = function (element, event, listener) {
-        if (!Dom.isNode(element) && element !== window) {
-            throw new Error(element + " is not a DOMNode object");
-        }
-
-        if (!element._event || !element._event[event]) {
-            return false;
-        }
-        return _indexOf(element._event[event].keys, listener) !== -1;
-    };
-
-    /* Dom Event Aliases */
-
-    /**
-     * Bind an event handler to the “click” JavaScript event
-     *
-     * @see Dom.addListener
-     * @param {HTMLElement|NodeList} element
-     * @param {Function} listener
-     * @returns {Dom|false}
-     */
-    Dom.onClick = function (element, listener) {
-        return Dom.addListener(element, Dom.Event.ON_CLICK, listener);
-    };
-
-    /**
-     * Bind an event handler to the “dblclick” JavaScript event
-     *
-     * @see Dom.addListener
-     * @param {HTMLElement|NodeList} element
-     * @param listener
-     * @returns {Dom|false}
-     */
-    Dom.onDblClick = function(element, listener) {
-        return Dom.addListener(element, Dom.Event.ON_DBLCLICK, listener);
-    };
-
-    /**
-     * Bind an event handler to the “onmouseover” JavaScript event
-     *
-     * @see Dom.addListener
-     * @param {HTMLElement|NodeList} element
-     * @param listener
-     * @returns {Dom|false}
-     */
-    Dom.onMouseOver = function(element, listener) {
-        return Dom.addListener(element, Dom.Event.ON_MOUSEOVER, listener);
-    };
-
-    /**
-     * Bind an event handler to the “onmouseout” JavaScript event
-     *
-     * @see Dom.addListener
-     * @param {HTMLElement|NodeList} element
-     * @param listener
-     * @returns {Dom|false}
-     */
-    Dom.onMouseOut = function(element, listener) {
-        return Dom.addListener(element, Dom.Event.ON_MOUSEOUT, listener);
-    };
-
-    /**
-     * Bind an event handler to the “onmousedown” JavaScript event
-     *
-     * @see Dom.addListener
-     * @param {HTMLElement|NodeList} element
-     * @param listener
-     * @returns {Dom|false}
-     */
-    Dom.onMouseDown = function(element, listener) {
-        return Dom.addListener(element, Dom.Event.ON_MOUSEDOWN, listener);
-    };
-
-    /**
-     * Bind an event handler to the “onmouseup” JavaScript event
-     *
-     * @see Dom.addListener
-     * @param {HTMLElement|NodeList} element
-     * @param listener
-     * @returns {Dom|false}
-     */
-    Dom.onMouseUp = function(element, listener) {
-        return Dom.addListener(element, Dom.Event.ON_MOUSEUP, listener);
-    };
-
-    /**
-     * Bind an event handler to the “onmouseenter” JavaScript event
-     *
-     * @see Dom.addListener
-     * @param {HTMLElement|NodeList} element
-     * @param listener
-     * @returns {Dom|false}
-     */
-    Dom.onMouseEnter = function(element, listener) {
-        return Dom.addListener(element, Dom.Event.ON_MOUSEENTER, listener);
-    };
-
-    /**
-     * Bind an event handler to the “onmouseleave” JavaScript event
-     *
-     * @see Dom.addListener
-     * @param {HTMLElement|NodeList} element
-     * @param listener
-     * @returns {Dom|false}
-     */
-    Dom.onMouseLeave = function(element, listener) {
-        return Dom.addListener(element, Dom.Event.ON_MOUSELEAVE, listener);
-    };
-
-    /**
-     * Bind an event handler to the “mousemove” JavaScript event
-     *
-     * @see Dom.addListener
-     * @param {HTMLElement|NodeList} element
-     * @param listener
-     * @returns {Dom|false}
-     */
-    Dom.onMouseMove = function(element, listener) {
-        return Dom.addListener(element, Dom.Event.ON_MOUSEMOVE, listener);
-    };
-
-    /**
-     * Bind an event handler to the “touchstart” JavaScript event
-     *
-     * @see Dom.addListener
-     * @param {HTMLElement|NodeList} element
-     * @param listener
-     * @returns {Dom|false}
-     */
-    Dom.onTouchStart = function(element, listener) {
-        return Dom.addListener(element, Dom.Event.ON_TOUCHSTART, listener);
-    };
-
-    /**
-     * Bind an event handler to the “touchend” JavaScript event
-     *
-     * @see Dom.addListener
-     * @param {HTMLElement|NodeList} element
-     * @param listener
-     * @returns {Dom|false}
-     */
-    Dom.onTouchEnd = function(element, listener) {
-        return Dom.addListener(element, Dom.Event.ON_TOUCHEND, listener);
-    };
-
-    /**
-     * Bind an event handler to the “touchmove” JavaScript event
-     *
-     * @see Dom.addListener
-     * @param {HTMLElement|NodeList} element
-     * @param listener
-     * @returns {Dom|false}
-     */
-    Dom.onTouchMove = function(element, listener) {
-        return Dom.addListener(element, Dom.Event.ON_TOUCHMOVE, listener);
-    };
-
-    /**
-     * Bind an event handler to the “touchcancel” JavaScript event
-     *
-     * @see Dom.addListener
-     * @param {HTMLElement|NodeList} element
-     * @param listener
-     * @returns {Dom|false}
-     */
-    Dom.onTouchCancel = function(element, listener) {
-        return Dom.addListener(element, Dom.Event.ON_TOUCHCANCEL, listener);
-    };
-
-    /**
-     * Bind an event handler to the “ondrag” JavaScript event
-     *
-     * @see Dom.addListener
-     * @param {HTMLElement|NodeList} element
-     * @param listener
-     * @returns {Dom|false}
-     */
-    Dom.onDrag = function(element, listener) {
-        return Dom.addListener(element, Dom.Event.ON_DRAG, listener);
-    };
-
-    /**
-     * Bind an event handler to the “ondragstart” JavaScript event
-     *
-     * @see Dom.addListener
-     * @param {HTMLElement|NodeList} element
-     * @param listener
-     * @returns {Dom|false}
-     */
-    Dom.onDragStart = function(element, listener) {
-        return Dom.addListener(element, Dom.Event.ON_DRAGSTART, listener);
-    };
-
-    /**
-     * Bind an event handler to the “ondragend” JavaScript event
-     *
-     * @see Dom.addListener
-     * @param {HTMLElement|NodeList} element
-     * @param listener
-     * @returns {Dom|false}
-     */
-    Dom.onDragEnd = function(element, listener) {
-        return Dom.addListener(element, Dom.Event.ON_DRAGEND, listener);
-    };
-
-    /**
-     * Bind an event handler to the “focus” JavaScript event
-     *
-     * @see Dom.addListener
-     * @param {HTMLElement|NodeList} element
-     * @param listener
-     * @returns {Dom|false}
-     */
-    Dom.onFocus = function(element, listener) {
-        return Dom.addListener(element, Dom.Event.ON_FOCUS, listener);
-    };
-
-    /**
-     * Bind an event handler to the “blur” JavaScript event
-     *
-     * @see Dom.addListener
-     * @param {HTMLElement|NodeList} element
-     * @param listener
-     * @returns {Dom|false}
-     */
-    Dom.onBlur = function(element, listener) {
-        return Dom.addListener(element, Dom.Event.ON_BLUR, listener);
-    };
-
-    /**
-     * Bind an event handler to the “select” JavaScript event
-     *
-     * @see Dom.addListener
-     * @param {HTMLElement|NodeList} element
-     * @param listener
-     * @returns {Dom|false}
-     */
-    Dom.onSelect = function(element, listener) {
-        return Dom.addListener(element, Dom.Event.ON_SELECT, listener);
-    };
-
-    /**
-     * Bind an event handler to the “change” JavaScript event
-     *
-     * @see Dom.addListener
-     * @param {HTMLElement|NodeList} element
-     * @param listener
-     * @returns {Dom|false}
-     */
-    Dom.onChange = function(element, listener) {
-        return Dom.addListener(element, Dom.Event.ON_CHANGE, listener);
-    };
-
-    /**
-     * Bind an event handler to the “submit” JavaScript event
-     *
-     * @see Dom.addListener
-     * @param {HTMLElement|NodeList} element
-     * @param listener
-     * @returns {Dom|false}
-     */
-    Dom.onSubmit = function(element, listener) {
-        return Dom.addListener(element, Dom.Event.ON_SUBMIT, listener);
-    };
-
-    /**
-     * Bind an event handler to the “reset” JavaScript event
-     *
-     * @see Dom.addListener
-     * @param {HTMLElement|NodeList} element
-     * @param listener
-     * @returns {Dom|false}
-     */
-    Dom.onReset = function(element, listener) {
-        return Dom.addListener(element, Dom.Event.ON_RESET, listener);
-    };
-
-    /**
-     * Bind an event handler to the “load” JavaScript event
-     *
-     * @see Dom.addListener
-     * @param {HTMLElement|NodeList} element
-     * @param listener
-     * @returns {Dom|false}
-     */
-    Dom.onLoad = function(element, listener) {
-        return Dom.addListener(element, Dom.Event.ON_LOAD, listener);
-    };
-
-    /**
-     * Bind an event handler to the “scroll” JavaScript event
-     *
-     * @see Dom.addListener
-     * @param {HTMLElement|NodeList} element
-     * @param listener
-     * @returns {Dom|false}
-     */
-    Dom.onScroll = function(element, listener) {
-        return Dom.addListener(element, Dom.Event.ON_SCROLL, listener);
-    };
-
-    /**
-     * Bind an event handler to the “unload” JavaScript event
-     *
-     * @see Dom.addListener
-     * @param {HTMLElement|NodeList} element
-     * @param listener
-     * @returns {Dom|false}
-     */
-    Dom.onUnload = function(element, listener) {
-        return Dom.addListener(element, Dom.Event.ON_UNLOAD, listener);
-    };
-
-    /**
-     * Bind an event handler to the “resize” JavaScript event
-     *
-     * @see Dom.addListener
-     * @param {HTMLElement|NodeList} element
-     * @param listener
-     * @returns {Dom|false}
-     */
-    Dom.onResize = function(element, listener) {
-        return Dom.addListener(element, Dom.Event.ON_RESIZE, listener);
-    };
-
-    /**
-     * Bind an event handler to the “keydown” JavaScript event
-     *
-     * @see Dom.addListener
-     * @param {HTMLElement|NodeList} element
-     * @param {Function} listener
-     * @returns {Dom|false}
-     */
-    Dom.onKeyDown = function (element, listener) {
-        return Dom.addListener(element, Dom.Event.ON_KEYDOWN, listener);
-    };
-
-    /**
-     * Bind an event handler to the “keyup” JavaScript event
-     *
-     * @see Dom.addListener
-     * @param {HTMLElement|NodeList} element
-     * @param {Function} listener
-     * @returns {Dom|false}
-     */
-    Dom.onKeyUp = function (element, listener) {
-        return Dom.addListener(element, Dom.Event.ON_KEYUP, listener);
-    };
-
-    /**
-     * Bind an event handler to the “keypress” JavaScript event
-     *
-     * @see Dom.addListener
-     * @param {HTMLElement|NodeList} element
-     * @param {Function} listener
-     * @returns {Dom|false}
-     */
-    Dom.onKeyPress = function (element, listener) {
-        return Dom.addListener(element, Dom.Event.ON_KEYPRESS, listener);
-    };
-
-    /* Dom Traversal */
-
-    /**
-     * Finds HTMLElements that match css pattern
-     *
-     * Supported from IE 8.0, FF 3.5, Chrome 4.0, Safari 3.1
-     * @param {String} selector
-     * @oaram {HTMLElement} element not required
-     * @returns {NodeList}
-     */
-    Dom.find = function (selector, element) {
-        var result = [];
-        if (Dom.isNode(element)) {
-             result = element.querySelectorAll(selector);
-        } else {
-            result = document.querySelectorAll(selector);
-        }
-        return result;
-    };
-
-    /**
-     * Returns HTMLElement with given id
-     *
-     * @param {String} id
-     * @returns {HTMLElement}
-     */
-    Dom.id = function (id) {
-        return document.getElementById(id);
-    };
-
-    /**
-     * Finds HTMLElements that match given tagname
-     *
-     * @param {String} name
-     * @returns {NodeList}
-     */
-    Dom.findByTagName = function (name) {
-        return document.getElementsByTagName(name);
-    };
-
-    /**
-     * Finds HTMLElements with given class name
-     *
-     * Supported from IE 8.0, FF 3.5, Chrome 4.0, Safari 3.1
-     * @param name
-     * @returns {NodeList}
-     */
-    Dom.findByClass = function (name) {
-        if (name.substring(0,1) == ".") {
-            name = name.substring(1);
-        }
-
-        if (document.getElementsByClassName) {
-            return document.getElementsByClassName(name);
-        }
-
-        if(document.querySelector && document.querySelectorAll ) {
-            return document.querySelectorAll("." + name);
-        }
-    };
-
-    /**
-     * Returns current coordinates of the element,
-     * relative to the document
-     *
-     * @param {HTMLElement} element
-     * @returns {*}
-     */
-    Dom.offset = function(element) {
-        if (!Dom.isElement(element)) {
-            return false;
-        }
-        var rect = element.getBoundingClientRect();
-
-        var offset = {
-            top: Math.round(rect.top),
-            right: Math.round(rect.right),
-            bottom: Math.round(rect.bottom),
-            left: Math.round(rect.left),
-            width: rect.width ? Math.round(rect.width) : Math.round(element.offsetWidth),
-            height: rect.height ? Math.round(rect.height) : Math.round(element.offsetHeight)
-
-        };
-
-        //fallback to css width and height
-        if (offset.width <= 0) {
-            offset.width = parseFloat(_getComputedStyle(element, 'width'));
-        }
-        if (offset.height <= 0) {
-            offset.height = parseFloat(_getComputedStyle(element, 'height'));
-        }
-
-        return offset;
-    };
-
-    /**
-     * Returns the width of the element
-     *
-     * @param {HTMLElement} element
-     */
-    Dom.width = function(element) {
-        return Dom.offset(element).width;
-    };
-
-    /**
-     * Returns the height of the element
-     *
-     * @param {HTMLElement} element
-     */
-    Dom.height = function(element) {
-        return Dom.offset(element).height;
-    };
-
-    /**
-     * Gets the parent of the html element
-     *
-     * @param {HTMLElement} element
-     * @returns {HTMLElement}
-     */
-    Dom.parent = function(element) {
-        if (!Dom.isNode(element)) {
-            throw new Error(element + " is not a DOMNode object");
-        }
-        return element.parentNode;
-    };
-
-    /**
-     * Gets children elements of html element. Text nodes are ommited by default.
-     * To get textnodes tag must be set to true, eg.
-     *
-     *      Dom.children(element, true)
-     *
-     * @param {HTMLElement} element
-     * @param {String|boolean} tag filters children by tag name or tells to retrieve text nodes as well
-     * @returns {NodeList|Array}
-     */
-    Dom.children = function(element, tag) {
-
-        if (typeof tag === 'boolean' && tag) {
-            return element.childNodes;
-        }
-
-        var result = [];
-
-        if (_isString(tag)) {
-
-            for (var i = 0, j = element.childNodes.length; i < j; i++) {
-                if (element.childNodes[i].nodeName.toLowerCase() === tag.toLowerCase()) {
-                    result.push(element.childNodes[i]);
-                }
-            }
-            return result;
-        }
-
-        for (var i in element.childNodes) {
-            if (element.childNodes[i].nodeType === 1) {
-                result.push(element.childNodes[i]);
-            }
-        }
-
-        return result;
-    };
-
-    /**
-     * Gets following sibling element of the HTMLElement
-     *
-     * @param {HTMLElement} element
-     * @returns {HTMLElement}
-     */
-    Dom.next = function(element) {
-        if (!Dom.isNode(element)) {
-            throw new Error(element + " is not a DOMNode object");
-        }
-
-        var result = element.nextSibling;
-        if (result.nodeType != 1) {
-            return Dom.next(result);
-        }
-        return result;
-    };
-
-    /**
-     * Gets previous sibling element of the HTMLElement
-     *
-     * @param {HTMLElement} element
-     * @returns {HTMLElement}
-     */
-    Dom.previous = function(element) {
-        if (!Dom.isNode(element)) {
-            throw new Error(element + " is not a DOMNode object");
-        }
-
-        var result = element.previousSibling;
-        if (result.nodeType != 1) {
-            return Dom.previous(result);
-        }
-        return result;
-    };
-
-    /* Dom Manipulation */
-
-    /**
-     * Gets or sets element attributes
-     * if the attribute is not defined this method
-     * return an empty string
-     *
-     * @param element
-     * @param attribute
-     * @param {*} attribute attribute name or names
-     *
-     * @example
-     * Dom.attribute(el, "href"); // returns href attribute's value of the element
-     * Dom.attribute(el, ["href", "target"]); //returns object of attributed of the element
-     * Dom.attribute(el, {href: "#new"}); //sets href attribute's value
-     */
-    Dom.attribute = function(element, attribute)  {
-        if (!Dom.isNode(element)) {
-            throw new Error(element + " is not a DOMNode object");
-        }
-
-        //get one attribute
-        if (typeof attribute === "string") {
-
-            var result;
-
-            if (attribute === 'class' && element['className'] !== undefined) {//class?
-                result = element.className;
-            } else if (attribute === 'for' && element['htmlFor'] !== undefined) {//for?
-                result = element.htmlFor;
-            } else if (attribute === 'value' && element['value'] !== undefined) {//value?
-                result = element.value;
-            } else {
-                result = element.getAttribute(attribute);
-            }
-
-            if (result === '') {
-                result = null;
-            }
-            return result;
-        }
-
-        //get many
-        if (_isArray(attribute)) {
-            var result = {};
-            for (var i in attribute) {
-                result[attribute[i]] = Dom.attribute(element, attribute[i]);
-            }
-            return result;
-        }
-
-        //set attribute(s)
-        if (_isLiteralObject(attribute)) {
-            for (var i in attribute) {
-                if (attribute[i] === null) {
-                    element.removeAttribute(i);
-                } else {
-                    element.setAttribute(i, attribute[i]);
-                }
-            }
-            return attribute;
-        }
-
-        return false;
-    };
-
-    /**
-     * Sets or gets HTMLElement's style
-     *
-     * @param {HTMLElement} element
-     * @param {Object} style key value pair object
-     * @returns {Object|false}
-     */
-    Dom.css = function(element, style) {
-
-        if (_isIterable(element) && _isLiteralObject(style)) {
-            _each (element, function(e) {
-                Dom.css(e, style);
-            });
-            return Dom;
-        }
-
-        if (!Dom.isNode(element)) {
-            throw new Error(element + " is not a DOMNode object");
-        }
-
-        //get one element
-        if (typeof style === "string") {
-            return _getComputedStyle(element, cssNameProperty(style));
-        }
-
-        //get array of elements
-        if (_isArray(style)) {
-            var css = {};
-            for (var i in style) {
-                css[style[i]] = _getComputedStyle(element, cssNameProperty(style[i]));
-            }
-            return css;
-        }
-
-        if (_isLiteralObject(style)) {
-            //set csses
-            for (var i in style) {
-                element.style[cssNameProperty(i)] = style[i];
-            }
-            return style;
-        }
-
-        return false;
-    };
-
-    /**
-     * Gets css classes of the given element
-     *
-     * @param {HTMLElement} element
-     * @returns {Array}
-     */
-    Dom.getClass = function(element) {
-        if (!Dom.isNode(element)) {
-            throw new Error(element + " is not a DOMNode object");
-        }
-
-        var attribute = Dom.attribute(element, 'class');
-        if (!attribute) {
-            return [];
-        }
-        attribute = attribute.split(' ');
-        var classNames = [];
-        for (var i in attribute) {
-            if (attribute[i] === '') {
-                continue;
-            }
-            classNames.push(attribute[i]);
-        }
-        return classNames;
-    };
-
-    /**
-     * Checks whether html element is assigned to the given class(es)
-     *
-     * @param element
-     * @param {String|Array} className
-     * @returns {boolean}
-     */
-    Dom.hasClass = function(element, className) {
-        if (!Dom.isNode(element)) {
-            throw new Error(element + " is not a DOMNode object");
-        }
-
-        if (_isString(className)) {
-            return _indexOf(Dom.getClass(element), className) > -1 ? true : false;
-        } else if (_isArray(className)) {
-            var elementClasses = Dom.getClass(element);
-            for (var i in className) {
-                if (_indexOf(className[i], elementClasses) === -1) {
-                    return false;
-                }
-            }
-            return true;
-        } else {
-            return false;
-        }
-
-        return false;
-    };
-
-    /**
-     * Assign new css class(es) to the html element(s)
-     *
-     * @param {HTMLElement} element
-     * @param {String} className
-     * @returns {boolean}
-     */
-    Dom.addClass = function(element, className) {
-        if (element === undefined) {
-            throw new Error("Dom.addClass first parameter cannot be undefined");
-        }
-
-        if (_isIterable(element)) {
-            _each(element, function(e) {
-                Dom.addClass(e, className);
-            });
-            return Dom;
-        }
-
-        if (!Dom.isNode(element)) {
-            throw new Error(element + " is not a DOMNode object");
-        }
-
-        if (_isArray(className)) {
-            for (var i in className) {
-                Dom.addClass(element, className[i]);
-            }
-            return Dom;
-        }
-
-        var classes = Dom.getClass(element);
-
-        if (_indexOf(classes, className) === -1) {
-            classes.push(className);
-        }
-        classes = classes.join(' ');
-        return Dom.attribute(element, {class: classes});
-    };
-
-    /**
-     * Removes html element's assignment to the css class(es)
-     *
-     * @param {HTMLElement} element
-     * @param {String} className
-     */
-    Dom.removeClass = function(element, className) {
-        if (element === undefined) {
-            throw new Error("Dom.removeClass first parameter cannot be undefined");
-        }
-
-        if (_isIterable(element)) {
-            _each(element, function(e) {
-                Dom.removeClass(e, className);
-            });
-            return Dom;
-        }
-
-        if (!Dom.isNode(element)) {
-            throw new Error("Dom.removeClass" + element + " is not a DOMNode object");
-        }
-
-        if (!className) {
-            return Dom.attribute(element, {class: null});
-        }
-
-        var classes = Dom.getClass(element);
-        var i = _indexOf(classes, className);
-
-        if (i === -1) {
-            return;
-        }
-        classes.splice(i, 1);
-        return Dom.attribute(element, {class: classes.join(' ')});
-
-    };
-
-    /**
-     * Creates html element(s)
-     *
-     * @param {String} html
-     * @return {HTMLElement}
-     */
-    Dom.create = function(html) {
-        var div = document.createElement('tbody');
-        var doc = document.createDocumentFragment();
-        Dom.html(div, html);
-        var children = Dom.children(div);
-
-
-        for (var i = 0, j = children.length; i < j; i++) {
-            Dom.append(doc, children[i]);
-        }
-
-        return doc;
-    };
-
-    /**
-     * Creates a copy of a node, and returns the clone.
-     *
-     * @param {HTMLElement} element
-     * @return {HTMLElement}
-     */
-    Dom.copy = function(element) {
-        if (!Dom.isNode(element)) {
-            throw new Error("Dom.copy" + element + " is not a DOMNode object");
-        }
-        return element.cloneNode(true);
-    };
-
-    /**
-     * Gets or sets inner html of HTMLElement
-     *
-     * @param {HTMLElement} element
-     * @param {String} string
-     * @returns {String}
-     */
-    Dom.html = function(element, string) {
-        if (!Dom.isNode(element)) {
-            throw new Error("Dom.html" + element + " is not a DOMNode object");
-        }
-
-        if (_isString(string)) {
-            element.innerHTML = string;
-            return string;
-        }
-
-        return element.innerHTML;
-    };
-
-    /**
-     * Gets or sets text value of the HTML element
-     *
-     * @param {HTMLElement} element
-     * @param {String} string
-     * @returns {*}
-     */
-    Dom.text = function(element, string) {
-
-        if (!Dom.isNode(element)) {
-            throw new Error("Dom.text " + element + " is not a DOMNode object");
-        }
-
-        if (_isString(string)) {
-
-            if (element.innerText) {
-                element.innerText = string;
-            } else {
-                element.textContent = string;
-            }
-            return string;
-        }
-
-        if (element.innerText) {
-            return element.innerText;
-        }
-
-        return element.textContent;
-    };
-
-    /**
-     * Micro template support, replaces the {{tag}} with variable
-     * in hash array passed to function
-     *
-     * @param {String} tpl template string
-     * @param {Object} hash
-     * @returns {String}
-     *
-     * @example
-     * ```
-     * var str = '<h1 class="{{class}}">{{text}}</h1>';
-     * var hash = {class: 'example', text: function () {return 'header';}};
-     *
-     * var result = Dom.template(str, hash);//<h1 class="example">header</h1>
-     * ```
-     */
-    Dom.template = function(tpl, hash) {
-
-        var regex = /\{\{.*?\}\}/gi;
-
-        return tpl.replace(regex, function replacer(str, pos, tpl) {
-            var properties = str.replace('{{', '').replace('}}', '').trim().split(' ');
-            var tag = properties[0];
-            if (!tag || !hash.hasOwnProperty(tag)) {
-                return '';
-            }
-            if (_isFunction(hash[tag])) {
-                return hash[tag].apply(tpl, properties);
-            }
-            if (_isString(hash[tag]) || _isNumeric(hash[tag])) {
-                return hash[tag];
-            }
-            return '';
-        });
-    };
-
-    /**
-     * Inserts content specified by the html argument at the end of HTMLElement
-     *
-     * @param {HTMLElement} element
-     * @param {String|HTMLElement} html
-     * @return {HTMLElement} inserted element
-     */
-    Dom.append = function(element, html) {
-
-        if (!Dom.isNode(element)) {
-            throw new Error("Dom.append " + element + " is not a DOMNode object");
-        }
-
-        if (_isString(html)) {
-            html = Dom.create(html);
-        }
-        element.appendChild(html);
-        return html;
-    };
-
-    /**
-     * Inserts content specified by the html argument at the beginning of HTMLElement
-     *
-     * @param {HTMLElement} element
-     * @param {String|HTMLElement} html
-     * @returns {HTMLElement} inserted element
-     */
-    Dom.prepend = function(element, html) {
-
-        if (!Dom.isNode(element)) {
-            throw new Error("Dom.prepend " + element + " is not a DOMNode object");
-        }
-
-        if (_isString(html)) {
-            html = Dom.create(html);
-        }
-        element.insertBefore(html, element.firstChild);
-        return html;
-    };
-
-    /**
-     * Inserts content specified by the html argument after the HTMLElement
-     *
-     * @param {HTMLElement} element
-     * @param {String|HTMLElement} html
-     * @returns {HTMLElement} inserted element
-     */
-    Dom.after = function(element, html) {
-
-        if (!Dom.isNode(element)) {
-            throw new Error("Dom.after " + element + " is not a DOMNode object");
-        }
-
-        if (_isString(html)) {
-            html = Dom.create(html);
-        }
-
-        element.parentNode.insertBefore(html, element.nextSibling);
-        return html;
-    };
-
-    /**
-     * Inserts content specified by the html argument before the HTMLElement
-     *
-     * @param {HTMLElement} element
-     * @param {String|HTMLElement} html
-     * @returns {HTMLElement} inserted element
-     */
-    Dom.before = function(element, html) {
-
-        if (!Dom.isNode(element)) {
-            throw new Error("Dom.before " + element + " is not a DOMNode object");
-        }
-
-        if (_isString(html)) {
-            html = Dom.create(html);
-        }
-
-        element.insertBefore(html, element);
-        return html;
-    };
-
-    /**
-     * Replaces given html element with content specified in html parameter
-     *
-     * @param {HTMLElement} element
-     * @param {String|HTMLElement} html
-     * @returns {HTMLElement} inserted element
-     */
-    Dom.replace = function(element, html) {
-
-        if (!Dom.isNode(element)) {
-            throw new Error("Dom.replace " + element + " is not a DOMNode object");
-        }
-
-        if (_isString(html)) {
-            html = Dom.create(html);
-        }
-        element.parentNode.replaceChild(html, element);
-        return html;
-    };
-
-    /**
-     * Removes HTMLElement from dom tree
-     *
-     * @param {HTMLElement} element
-     * @returns {HTMLElement} removed element
-     */
-    Dom.remove = function(element) {
-
-        if (!Dom.isNode(element)) {
-            throw new Error("Dom.remove " + element + " is not a DOMNode object");
-        }
-
-        var parent = element.parentNode;
-        return parent.removeChild(element);
-    };
-
-    /**
-     * Gets/Sets element data
-     * @param {HTMLElement} element
-     * @param {String|object} name not required
-     * @returns {*}
-     */
-    Dom.data = function(element, name) {
-        if (!Dom.isNode(element)) {
-            throw new Error("Dom.data " + element + " is not a DOMNode object");
-        }
-
-        //get all element's data
-        if (name === undefined) {
-            if (element.hasOwnProperty('dataset')) {
-                var dataset = {};
-                for (var i in element.dataset) {
-                    dataset[i] = element.dataset[i];
-                }
-                return dataset;
-            } else {//pollyfill for shitty browsers
-                var dataset = {};
-                for (var i = 0, attributes = element.attributes, l = attributes.length; i < l; i++) {
-                    var attr = attributes.item(i);
-                    if (attr.nodeName.substr(0, 5) !== 'data-') {
-                        continue;
-                    }
-                    dataset[attr.nodeName.substr(5)] = attr.nodeValue;
-                }
-                return dataset;
-            }
-        }
-
-        //get one attribute
-        if (_isString(name)) {
-            return Dom.attribute(element, 'data-' + name);
-        }
-
-        //get dataset by user names
-        if (_isArray(name)) {
-            var dataset = {};
-            for (var i = 0, l = name.length; i < l; i++) {
-                var prop = name[i];
-                dataset[prop] = Dom.attribute(element, 'data-' + prop);
-            }
-            return dataset;
-        }
-
-        //set/remove attributes
-        if (_isLiteralObject(name)) {
-            var attrs = {};
-            for (var i in name) {
-                var value = name[i];
-                attrs['data-' + i] = value;
-            }
-            Dom.attribute(element, attrs);
-        }
-
-    };
-
-    /**
-     * Sets handler which will be executed as soon as
-     * document will load
-     *
-     * @param {Function} handler
-     * @returns {Dom}
-     */
-    Dom.loaded = function(handler) {
-        if (_isDomLoaded !== false) {
-            handler.call(null, _isDomLoaded);
-            return Dom;
-        }
-
-        _domLoadedHandlers.push(handler);
-        return Dom;
-    };
-
-    /**
-     * Sets handler which will be executed as soon as
-     * document will be ready
-     *
-     * @param {Function} handler
-     * @returns {Dom}
-     */
-    Dom.ready = function(handler) {
-        if (_isDomReady !== false) {
-            handler.call(null, _isDomReady);
-            return Dom;
-        }
-        _domReadyHandlers.push(handler);
-        return Dom;
-    };
-
-    function _onDOMReady(e) {
-        //add most used selectors
-        Dom.body = Dom.findByTagName('body')[0];
-        Dom.head = Dom.findByTagName('head')[0];
-
-        var event = new Dom.Event(e);
-        _isDomReady = event;
-
-        _each(_domReadyHandlers, function(fn) {
-            fn.call(null, event);
-        });
+          slider.container.width((slider.count + slider.cloneCount) * 200 + "%");
+          slider.setProps(sliderOffset * slider.computedW, "init");
+          setTimeout(function(){
+            slider.doMath();
+            slider.newSlides.css({"width": slider.computedW, "float": "right", "display": "block"});
+            // SMOOTH HEIGHT:
+            if (vars.smoothHeight) methods.smoothHeight();
+          }, (type === "init") ? 100 : 0);
+        }
+      } else { // FADE: 
+        slider.slides.css({"width": "100%", "float": "right", "marginLeft": "-100%", "position": "relative"});
+        if (type === "init") {
+          if (!touch) {
+            slider.slides.eq(slider.currentSlide).fadeIn(vars.animationSpeed, vars.easing);
+          } else {
+            slider.slides.css({ "opacity": 0, "display": "block", "webkitTransition": "opacity " + vars.animationSpeed / 1000 + "s ease" }).eq(slider.currentSlide).css({ "opacity": 1});
+          }
+        }
+        // SMOOTH HEIGHT:
+        if (vars.smoothHeight) methods.smoothHeight();
+      }
+      // !CAROUSEL:
+      // CANDIDATE: active slide
+      if (!carousel) slider.slides.removeClass(namespace + "active-slide").eq(slider.currentSlide).addClass(namespace + "active-slide");
     }
+    
+    slider.doMath = function() {
+      var slide = slider.slides.first(),
+          slideMargin = vars.itemMargin,
+          minItems = vars.minItems,
+          maxItems = vars.maxItems;
+      
+      slider.w = slider.width();
+      slider.h = slide.height();
+      slider.boxPadding = slide.outerWidth() - slide.width();
 
-    function _onDOMLoaded(e) {
-
-        var event = new Dom.Event(e);
-        _isDomLoaded = event;
-
-        _each(_domLoadedHandlers, function(fn) {
-            fn.call(null, event);
-        });
+      // CAROUSEL:
+      if (carousel) {
+        slider.itemT = vars.itemWidth + slideMargin;
+        slider.minW = (minItems) ? minItems * slider.itemT : slider.w;
+        slider.maxW = (maxItems) ? maxItems * slider.itemT : slider.w;
+        slider.itemW = (slider.minW > slider.w) ? (slider.w - (slideMargin * minItems))/minItems :
+                       (slider.maxW < slider.w) ? (slider.w - (slideMargin * maxItems))/maxItems :
+                       (vars.itemWidth > slider.w) ? slider.w : vars.itemWidth;
+        slider.visible = Math.floor(slider.w/(slider.itemW + slideMargin));
+        slider.move = (vars.move > 0 && vars.move < slider.visible ) ? vars.move : slider.visible;
+        slider.pagingCount = Math.ceil(((slider.count - slider.visible)/slider.move) + 1);
+        slider.last =  slider.pagingCount - 1;
+        slider.limit = (slider.pagingCount === 1) ? 0 :
+                       (vars.itemWidth > slider.w) ? ((slider.itemW + (slideMargin * 2)) * slider.count) - slider.w - slideMargin : ((slider.itemW + slideMargin) * slider.count) - slider.w - slideMargin;
+      } else {
+        slider.itemW = slider.w;
+        slider.pagingCount = slider.count;
+        slider.last = slider.count - 1;
+      }
+      slider.computedW = slider.itemW - slider.boxPadding;
     }
-
-    //on load
-    if (window.onload !== null) {
-        _domLoadedHandlers.push(window.onload);
+    
+    slider.update = function(pos, action) {
+      slider.doMath();
+      
+      // update currentSlide and slider.animatingTo if necessary
+      if (!carousel) {
+        if (pos < slider.currentSlide) {
+          slider.currentSlide += 1;
+        } else if (pos <= slider.currentSlide && pos !== 0) {
+          slider.currentSlide -= 1;
+        }
+        slider.animatingTo = slider.currentSlide;
+      }
+      
+      // update controlNav
+      if (vars.controlNav && !slider.manualControls) {
+        if ((action === "add" && !carousel) || slider.pagingCount > slider.controlNav.length) {
+          methods.controlNav.update("add");
+        } else if ((action === "remove" && !carousel) || slider.pagingCount < slider.controlNav.length) {
+          if (carousel && slider.currentSlide > slider.last) {
+            slider.currentSlide -= 1;
+            slider.animatingTo -= 1;
+          }
+          methods.controlNav.update("remove", slider.last);
+        }
+      }
+      // update directionNav
+      if (vars.directionNav) methods.directionNav.update();
+      
     }
-    window.onload = _onDOMLoaded;
-
-    //on ready
-    if (addListener === 'attachEvent') {//shitty browsers
-        document[addListener]('onreadystatechange', function(e) {
-            if (document.readyState === 'complete') {
-                document[removeListener]('onreadystatechange', arguments.callee);
-                _onDOMReady(e);
-            }
-        });
-    } else {//ecma compatible browsers
-        document[addListener]('DOMContentLoaded', function(e) {
-            document[removeListener]('DOMContentLoaded', arguments.callee, false);
-            _onDOMReady(e);
-        }, false);
+    
+    slider.addSlide = function(obj, pos) {
+      var $obj = $(obj);
+      
+      slider.count += 1;
+      slider.last = slider.count - 1;
+      
+      // append new slide
+      if (vertical && reverse) {
+        (pos !== undefined) ? slider.slides.eq(slider.count - pos).after($obj) : slider.container.prepend($obj);
+      } else {
+        (pos !== undefined) ? slider.slides.eq(pos).before($obj) : slider.container.append($obj);
+      }
+      
+      // update currentSlide, animatingTo, controlNav, and directionNav
+      slider.update(pos, "add");
+      
+      // update slider.slides
+      slider.slides = $(vars.selector + ':not(.clone)', slider);
+      // re-setup the slider to accomdate new slide
+      slider.setup();
+      
+      //FlexSlider: added() Callback
+      vars.added(slider);
     }
+    slider.removeSlide = function(obj) {
+      var pos = (isNaN(obj)) ? slider.slides.index($(obj)) : obj;
+      
+      // update count
+      slider.count -= 1;
+      slider.last = slider.count - 1;
+      
+      // remove slide
+      if (isNaN(obj)) {
+        $(obj, slider.slides).remove();
+      } else {
+        (vertical && reverse) ? slider.slides.eq(slider.last).remove() : slider.slides.eq(obj).remove();
+      }
+      
+      // update currentSlide, animatingTo, controlNav, and directionNav
+      slider.doMath();
+      slider.update(pos, "remove");
+      
+      // update slider.slides
+      slider.slides = $(vars.selector + ':not(.clone)', slider);
+      // re-setup the slider to accomdate new slide
+      slider.setup();
+      
+      // FlexSlider: removed() Callback
+      vars.removed(slider);
+    }
+    
+    //FlexSlider: Initialize
+    methods.init();
+  }
+  
+  //FlexSlider: Default Settings
+  $.flexslider.defaults = {
+    namespace: "flex-",             //{NEW} String: Prefix string attached to the class of every element generated by the plugin
+    selector: ".slides > li",       //{NEW} Selector: Must match a simple pattern. '{container} > {slide}' -- Ignore pattern at your own peril
+    animation: "fade",              //String: Select your animation type, "fade" or "slide"
+    easing: "swing",               //{NEW} String: Determines the easing method used in jQuery transitions. jQuery easing plugin is supported!
+    direction: "horizontal",        //String: Select the sliding direction, "horizontal" or "vertical"
+    reverse: false,                 //{NEW} Boolean: Reverse the animation direction
+    animationLoop: true,             //Boolean: Should the animation loop? If false, directionNav will received "disable" classes at either end
+    smoothHeight: false,            //{NEW} Boolean: Allow height of the slider to animate smoothly in horizontal mode  
+    startAt: 0,                     //Integer: The slide that the slider should start on. Array notation (0 = first slide)
+    slideshow: true,                //Boolean: Animate slider automatically
+    slideshowSpeed: 7000,           //Integer: Set the speed of the slideshow cycling, in milliseconds
+    animationSpeed: 600,            //Integer: Set the speed of animations, in milliseconds
+    initDelay: 0,                   //{NEW} Integer: Set an initialization delay, in milliseconds
+    randomize: false,               //Boolean: Randomize slide order
+    
+    // Usability features
+    pauseOnAction: true,            //Boolean: Pause the slideshow when interacting with control elements, highly recommended.
+    pauseOnHover: true,            //Boolean: Pause the slideshow when hovering over slider, then resume when no longer hovering
+    useCSS: true,                   //{NEW} Boolean: Slider will use CSS3 transitions if available
+    touch: true,                    //{NEW} Boolean: Allow touch swipe navigation of the slider on touch-enabled devices
+    video: true,                   //{NEW} Boolean: If using video in the slider, will prevent CSS3 3D Transforms to avoid graphical glitches
+    
+    // Primary Controls
+    controlNav: true,               //Boolean: Create navigation for paging control of each clide? Note: Leave true for manualControls usage
+    directionNav: true,             //Boolean: Create navigation for previous/next navigation? (true/false)
+    prevText: "Previous",           //String: Set the text for the "previous" directionNav item
+    nextText: "Next",               //String: Set the text for the "next" directionNav item
+    
+    // Secondary Navigation
+    keyboard: true,                 //Boolean: Allow slider navigating via keyboard left/right keys
+    multipleKeyboard: false,        //{NEW} Boolean: Allow keyboard navigation to affect multiple sliders. Default behavior cuts out keyboard navigation with more than one slider present.
+    mousewheel: false,              //{UPDATED} Boolean: Requires jquery.mousewheel.js (https://github.com/brandonaaron/jquery-mousewheel) - Allows slider navigating via mousewheel
+    pausePlay: false,               //Boolean: Create pause/play dynamic element
+    pauseText: "Pause",             //String: Set the text for the "pause" pausePlay item
+    playText: "Play",               //String: Set the text for the "play" pausePlay item
+    
+    // Special properties
+    controlsContainer: "",          //{UPDATED} jQuery Object/Selector: Declare which container the navigation elements should be appended too. Default container is the FlexSlider element. Example use would be $(".flexslider-container"). Property is ignored if given element is not found.
+    manualControls: "",             //{UPDATED} jQuery Object/Selector: Declare custom control navigation. Examples would be $(".flex-control-nav li") or "#tabs-nav li img", etc. The number of elements in your controlNav should match the number of slides/tabs.
+    sync: "",                       //{NEW} Selector: Mirror the actions performed on this slider with another slider. Use with care.
+    asNavFor: "",                   //{NEW} Selector: Internal property exposed for turning the slider into a thumbnail navigation for another slider
+    
+    // Carousel Options
+    itemWidth: 0,                   //{NEW} Integer: Box-model width of individual carousel items, including horizontal borders and padding.
+    itemMargin: 0,                  //{NEW} Integer: Margin between carousel items.
+    minItems: 0,                    //{NEW} Integer: Minimum number of carousel items that should be visible. Items will resize fluidly when below this.
+    maxItems: 0,                    //{NEW} Integer: Maxmimum number of carousel items that should be visible. Items will resize fluidly when above this limit.
+    move: 0,                        //{NEW} Integer: Number of carousel items that should move on animation. If 0, slider will move all visible items.
+                                    
+    // Callback API
+    start: function(){},            //Callback: function(slider) - Fires when the slider loads the first slide
+    before: function(){},           //Callback: function(slider) - Fires asynchronously with each slider animation
+    after: function(){},            //Callback: function(slider) - Fires after each slider animation completes
+    end: function(){},              //Callback: function(slider) - Fires when the slider reaches the last slide (asynchronous)
+    added: function(){},            //{NEW} Callback: function(slider) - Fires after a slide is added
+    removed: function(){}           //{NEW} Callback: function(slider) - Fires after a slide is removed
+  }
 
 
-    //export dom
-    window.Dom = Dom;
+  //FlexSlider: Plugin Function
+  $.fn.flexslider = function(options) {
+    if (options === undefined) options = {};
+    
+    if (typeof options === "object") {
+      return this.each(function() {
+        var $this = $(this),
+            selector = (options.selector) ? options.selector : ".slides > li",
+            $slides = $this.find(selector);
 
+        if ($slides.length === 1) {
+          $slides.fadeIn(400);
+          if (options.start) options.start($this);
+        } else if ($this.data('flexslider') === undefined) {
+          new $.flexslider(this, options);
+        }
+      });
+    } else {
+      // Helper strings to quickly perform functions on the slider
+      var $slider = $(this).data('flexslider');
+      switch (options) {
+        case "play": $slider.play(); break;
+        case "pause": $slider.pause(); break;
+        case "next": $slider.flexAnimate($slider.getTarget("next"), true); break;
+        case "prev":
+        case "previous": $slider.flexAnimate($slider.getTarget("prev"), true); break;
+        default: if (typeof options === "number") $slider.flexAnimate(options, true);
+      }
+    }
+  }  
 
-})(this, document);
+})(jQuery);
